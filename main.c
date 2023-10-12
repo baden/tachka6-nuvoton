@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include "NUC100Series.h"
 #include "uart.h"
+#include "i2c.h"
 
 #define PLL_CLOCK           50000000
 
@@ -46,6 +47,10 @@ void SYS_Init(void)
     /* Enable UART module clock */
     CLK_EnableModuleClock(UART0_MODULE);
 
+  
+    /* Enable I2C0 module clock */
+    CLK_EnableModuleClock(I2C0_MODULE);
+
     /* Select UART module clock source */
     CLK_SetModuleClock(UART0_MODULE, CLK_CLKSEL1_UART_S_HXT, CLK_CLKDIV_UART(1));
 
@@ -56,6 +61,10 @@ void SYS_Init(void)
     /* Set GPB multi-function pins for UART0 RXD and TXD */
     SYS->GPB_MFP &= ~(SYS_GPB_MFP_PB0_Msk | SYS_GPB_MFP_PB1_Msk);
     SYS->GPB_MFP |= (SYS_GPB_MFP_PB0_UART0_RXD | SYS_GPB_MFP_PB1_UART0_TXD);
+
+    /* Set GPA multi-function pins for I2C0 SDA and SCL */
+    SYS->GPA_MFP &= ~(SYS_GPA_MFP_PA8_Msk | SYS_GPA_MFP_PA9_Msk);
+    SYS->GPA_MFP |= SYS_GPA_MFP_PA8_I2C0_SDA | SYS_GPA_MFP_PA9_I2C0_SCL;
 
 }
 
@@ -69,6 +78,53 @@ void UART0_Init()
 
     /* Configure UART0 and set UART0 Baudrate */
     UART_Open(UART0, 115200);
+}
+
+void I2C0_Init(void)
+{
+    /* Open I2C module and set bus clock */
+    I2C_Open(I2C0, 100000);
+
+    /* Get I2C0 Bus Clock */
+    // printf("I2C clock %ld Hz\n", I2C_GetBusClockFreq(I2C0));
+
+    /* Enable I2C interrupt */
+    // I2C_EnableInt(I2C0);
+    // NVIC_EnableIRQ(I2C0_IRQn);
+}
+
+#define MCP4725_SLAVE_ADDR          0x60                       /*!< slave address for MCP4725 sensor. Not 0x62? */
+#define MCP4725_WRITE_FAST_MODE     0x00                       /*!< MCP4725 fast write command */
+#define MCP4725_WRITE_DAC           0x60                       /*!< MCP4725 DAC write command */
+
+
+void mcp4725_set_value(uint16_t value)
+{
+    if(value > 4095) value = 4095;
+    
+
+    /* Send START */
+    I2C_START(I2C0);
+    I2C_WAIT_READY(I2C0);
+
+    /* Send device address */
+    I2C_SET_DATA(I2C0, MCP4725_SLAVE_ADDR << 1);
+    I2C_SET_CONTROL_REG(I2C0, I2C_I2CON_SI);
+    I2C_WAIT_READY(I2C0);
+
+    /* Send register number and MSB of data */
+    I2C_SET_DATA(I2C0, (uint8_t)(MCP4725_WRITE_FAST_MODE | (value >> 8)));
+    I2C_SET_CONTROL_REG(I2C0, I2C_I2CON_SI);
+    I2C_WAIT_READY(I2C0);
+
+    /* Send data */
+    I2C_SET_DATA(I2C0, (uint8_t)(value & 0x00FF));
+    I2C_SET_CONTROL_REG(I2C0, I2C_I2CON_SI);
+    I2C_WAIT_READY(I2C0);
+
+    /* Send STOP */
+    I2C_STOP(I2C0);
+
 }
 
 void Delay(int count)
@@ -124,6 +180,9 @@ int main()
     /* Init UART0 for printf */
     UART0_Init();
 
+    /* Init I2C0 */
+    I2C0_Init();
+
     printf("+------------------------+\n");
     printf("|    Tachka 6 driver     |\n");
     printf("+------------------------+\n\n");
@@ -159,7 +218,10 @@ int main()
         Delay(1000000);
         PA10 = 0;
         Delay(1000000);
-        printf("Task tick. %d\n", counter++);
+        printf("Task tick. %d\n", counter);
+        counter += 50;
+        mcp4725_set_value(counter);
+        if(counter >= 4096) counter = 0;
         // UART_WRITE(UART0, 'a');
 
     }

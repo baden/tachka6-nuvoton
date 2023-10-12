@@ -42,6 +42,10 @@ build/uart.o: ./NUC100BSP/Library/StdDriver/src/uart.c
 	mkdir -p build
 	${GCC} $< -c -o $@ ${INCLUDES_DIRS} ${CFLAGS}
 
+build/i2c.o: ./NUC100BSP/Library/StdDriver/src/i2c.c
+	mkdir -p build
+	${GCC} $< -c -o $@ ${INCLUDES_DIRS} ${CFLAGS}
+
 build/sys.o: ./NUC100BSP/Library/StdDriver/src/sys.c
 	mkdir -p build
 	${GCC} $< -c -o $@ ${INCLUDES_DIRS} ${CFLAGS}
@@ -58,7 +62,7 @@ build/main.o: main.c
 	mkdir -p build
 	${GCC} $< -c -o $@ ${INCLUDES_DIRS} ${CFLAGS}
 
-OBJS = build/main.o build/gpio.o build/uart.o build/sys.o build/clk.o build/system_NUC100Series.o build/startup_NUC100Series.o
+OBJS = build/main.o build/gpio.o build/uart.o build/i2c.o build/sys.o build/clk.o build/system_NUC100Series.o build/startup_NUC100Series.o
 
 build/main.elf: ${OBJS}
 	mkdir -p build

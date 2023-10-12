@@ -22,10 +22,13 @@ git clone https://github.com/OpenNuvoton/NUC100BSP.git
 https://www.nuvoton.com/export/resource-files/NuTiny-SDK-NUC140_User_Manual_EN_V1.01.pdf
 
 Почнемо зі світлодіода.
-P10  I2C1_SDA/PA.10  - Вбудован в плату.
+pin10  I2C1_SDA/PA.10  - Вбудован в плату.
 
-P32 - PB0 - UART RXD  - JP5, pin7
-P33 - PB1 - UART TXD  - JP5, pin8
+pin32 - PB0 - UART RXD  - JP5, pin7
+pin33 - PB1 - UART TXD  - JP5, pin8
+
+pin12 - PA8 - I2C0 SDA
+pin11 - PA9 - I2C0 SCL
 
 Херассе. Пришив. Працює!!!!
 
