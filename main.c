@@ -21,6 +21,36 @@
 //     SYS->GPB_MFP |= (SYS_GPB_MFP_PB0_UART0_RXD | SYS_GPB_MFP_PB1_UART0_TXD);
 // }
 
+bool led_state = false;
+
+volatile bool bus_pause = false;
+static __INLINE void restart_pause_detector_timer()
+{
+    TIMER_Stop(TIMER0);
+    TIMER_Open(TIMER0, TIMER_ONESHOT_MODE, 333);
+    TIMER_EnableInt(TIMER0);
+    // TIMER_ResetCounter(TIMER0);
+    TIMER_Start(TIMER0);
+    bus_pause = false;
+}
+
+void TMR0_IRQHandler(void)
+{
+    if(TIMER_GetIntFlag(TIMER0) == 1)
+    {
+        /* Clear Timer0 time-out interrupt flag */
+        TIMER_ClearIntFlag(TIMER0);
+        bus_pause = true;
+
+                led_state = !led_state;
+                if(led_state) {
+                    PA10 = 1;
+                } else {
+                    PA10 = 0;
+                }
+        
+    }
+}
 
 
 void SYS_Init(void)
@@ -47,10 +77,13 @@ void SYS_Init(void)
     /* Set core clock as PLL_CLOCK from PLL */
     CLK_SetCoreClock(PLL_CLOCK);
 
+    /* Enable Timer 0 module clock */
+    CLK_EnableModuleClock(TMR0_MODULE);
+    CLK_SetModuleClock(TMR0_MODULE, CLK_CLKSEL1_TMR0_S_HXT, 0); // HCLK, HIRC
+
     /* Enable UART modules clock */
     CLK_EnableModuleClock(UART0_MODULE);
     CLK_EnableModuleClock(UART1_MODULE);
-
   
     /* Enable I2C0 module clock */
     CLK_EnableModuleClock(I2C0_MODULE);
@@ -74,7 +107,6 @@ void SYS_Init(void)
     SYS->GPA_MFP |= SYS_GPA_MFP_PA8_I2C0_SDA | SYS_GPA_MFP_PA9_I2C0_SCL;
 }
 
-bool led_state = false;
 
 uint8_t bus_data[32] = {0};
 size_t bus_data_len = 0;
@@ -91,13 +123,27 @@ enum bus_state {
 
 enum bus_state bus_state = BUS_GET_LENGTH;
 
-void parseBusCommand(uint8_t cmd, uint8_t len, uint8_t *data, size_t data_len)
+uint16_t axes[8] = {0};
+volatile bool axes_updated = false;
+
+void parseBusCommand(uint8_t cmd, uint8_t *data, size_t data_len)
 {
-    printf("Bus command: %02x, len: %d\n", cmd, len);
-    for(int i = 0; i < data_len; i++) {
-        printf("%02x ", data[i]);
+    if(cmd == 0x40) {
+        axes[0] = data[0] | (data[1] << 8);
+        axes[1] = data[2] | (data[3] << 8);
+        axes[2] = data[4] | (data[5] << 8);
+        axes[3] = data[6] | (data[7] << 8);
+        axes[4] = data[8] | (data[9] << 8);
+        axes[5] = data[10] | (data[11] << 8);
+        axes[6] = data[12] | (data[13] << 8);
+        axes[7] = data[14] | (data[15] << 8);
+        axes_updated = true;
     }
-    printf("\n");
+    // printf("Bus command: %02x \t", cmd);
+    // for(int i = 0; i < data_len; i++) {
+    //     printf("%02x ", data[i]);
+    // }
+    printf("\r");
 }
 
 // <len><cmd><data....><chkl><chkh>
@@ -108,6 +154,11 @@ void parseBusPacket(uint8_t b)
     static size_t len = 0;
     static size_t ptr = 0;
     static uint16_t chksum = 0;
+
+    if(bus_pause) {
+        bus_state = BUS_GET_LENGTH;
+    }
+    restart_pause_detector_timer();
 
     switch(bus_state) {
         case BUS_GET_LENGTH:
@@ -138,19 +189,14 @@ void parseBusPacket(uint8_t b)
         case BUS_GET_CRCH:
             if(((chksum >> 8) & 0xFF) == b) {
                 // Packet is valid
-                parseBusCommand(buffer[0], buffer[1], buffer + 2, len);
+                parseBusCommand(buffer[0], buffer + 1, len);
                 bus_state = BUS_GET_LENGTH;
+                // bus_state = BUS_DISCARD;
             } else {
                 bus_state = BUS_DISCARD;
             }
             break;
         case BUS_DISCARD:
-                led_state = !led_state;
-                if(led_state) {
-                    PA10 = 1;
-                } else {
-                    PA10 = 0;
-                }
             break;
         default:
             break;
@@ -180,6 +226,7 @@ void UART1_IRQHandler(void)
 
     }
 }
+
 
 void UART0_Init()
 {
@@ -284,7 +331,6 @@ int _write(int file, char *ptr, int len)
 
 int main()
 {
-
     /* Unlock protected registers */
     SYS_UnlockReg();
 
@@ -293,6 +339,12 @@ int main()
 
     /* Lock protected registers */
     SYS_LockReg();
+
+    /* Open Timer0 in one shot mode, ~3msec */
+    // TIMER_EnableInt(TIMER0);
+    NVIC_EnableIRQ(TMR0_IRQn);
+    /* Reset Timer0 and Start Timer0 counting */
+
 
     /* Init UART0 for printf */
     UART0_Init();
@@ -333,16 +385,27 @@ int main()
 
     do
     {
+        if(axes_updated) {
+            axes_updated = false;
+            printf("Axes:\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\r", axes[0], axes[1], axes[2], axes[3], axes[4], axes[5], axes[6], axes[7]);
+
+            // Transform axes[4] 1000..2000 to 0..4096
+            int a_value = (axes[4] - 1000) * 4096 / 1000;
+
+            mcp4725_set_value(a_value);
+        }
+
+
         // printf("Input: ");
         // ch = getchar();
         // printf("%c\n", ch);
         // PA10 = 1;
         // Delay(1000000);
         // PA10 = 0;
-        Delay(1000000);
+        // Delay(1000000);
         // printf("Task tick. %d (bus: %d)\n", counter, bus_packet_counter);
-        counter += 50;
-        mcp4725_set_value(counter);
+        // counter += 50;
+
         if(counter >= 4096) counter = 0;
         // UART_WRITE(UART0, 'a');
 
