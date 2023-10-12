@@ -92,12 +92,21 @@ static void SendChar_ToUART(int ch)
     }
 }
 
-static void PutString(char *str)
+// static void PutString(char *str)
+// {
+//     while (*str != '\0')
+//     {
+//         SendChar_ToUART(*str++);
+//     }
+// }
+
+int _write(int file, char *ptr, int len)
 {
-    while (*str != '\0')
+    for(int idx = 0; idx < len; idx++)
     {
-        SendChar_ToUART(*str++);
+        SendChar_ToUART(*ptr++);
     }
+    return len;
 }
 
 int main()
@@ -115,9 +124,9 @@ int main()
     /* Init UART0 for printf */
     UART0_Init();
 
-    PutString("+------------------------+\n");
-    PutString("|    Tachka 6 driver     |\n");
-    PutString("+------------------------+\n\n");
+    printf("+------------------------+\n");
+    printf("|    Tachka 6 driver     |\n");
+    printf("+------------------------+\n\n");
 
     GPIO_SetMode(PA, BIT10, GPIO_PMD_OUTPUT);
     PA10 = 0;
@@ -139,6 +148,8 @@ int main()
 
     // // printf("Please Input Any Key\n\n");
 
+    int counter = 0;
+
     do
     {
         // printf("Input: ");
@@ -148,7 +159,7 @@ int main()
         Delay(1000000);
         PA10 = 0;
         Delay(1000000);
-        PutString("Task tick\n");
+        printf("Task tick. %d\n", counter++);
         // UART_WRITE(UART0, 'a');
 
     }
