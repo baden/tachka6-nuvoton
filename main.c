@@ -257,12 +257,13 @@ void I2C0_Init(void)
     // NVIC_EnableIRQ(I2C0_IRQn);
 }
 
-#define MCP4725_SLAVE_ADDR          0x60                       /*!< slave address for MCP4725 sensor. Not 0x62? */
-#define MCP4725_WRITE_FAST_MODE     0x00                       /*!< MCP4725 fast write command */
+#define MCP4725_SLAVE_ADDR1          0x60                       /*!< slave address for MCP4725 sensor. Not 0x62? */
+#define MCP4725_SLAVE_ADDR2          0x61               /*!< slave address for MCP4725 sensor */
+#define MCP4725_WRITE_FAST_MODE     0x00                        /*!< MCP4725 fast write command */
 #define MCP4725_WRITE_DAC           0x60                       /*!< MCP4725 DAC write command */
 
 
-void mcp4725_set_value(uint16_t value)
+void mcp4725_set_value(uint16_t value, bool channel)
 {
     if(value > 4095) value = 4095;
     
@@ -272,7 +273,7 @@ void mcp4725_set_value(uint16_t value)
     I2C_WAIT_READY(I2C0);
 
     /* Send device address */
-    I2C_SET_DATA(I2C0, MCP4725_SLAVE_ADDR << 1);
+    I2C_SET_DATA(I2C0, (channel ? MCP4725_SLAVE_ADDR2 : MCP4725_SLAVE_ADDR1) << 1);
     I2C_SET_CONTROL_REG(I2C0, I2C_I2CON_SI);
     I2C_WAIT_READY(I2C0);
 
@@ -391,8 +392,10 @@ int main()
 
             // Transform axes[4] 1000..2000 to 0..4096
             int a_value = (axes[4] - 1000) * 4096 / 1000;
+            int b_value = (axes[5] - 1000) * 4096 / 1000;
 
-            mcp4725_set_value(a_value);
+            mcp4725_set_value(a_value, false);
+            mcp4725_set_value(b_value, true);
         }
 
 
