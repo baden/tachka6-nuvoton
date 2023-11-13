@@ -24,14 +24,20 @@ https://www.nuvoton.com/export/resource-files/NuTiny-SDK-NUC140_User_Manual_EN_V
 Почнемо зі світлодіода.
 pin10  I2C1_SDA/PA.10  - Вбудован в плату.
 
-pin32 - PB0 - UART0 RXD     printf перенаправлен сюди, 115200
-pin33 - PB1 - UART0 TXD 
+pin32 - PB0 - UART0 RXD     
+pin33 - PB1 - UART0 TXD     printf перенаправлен сюди, 115200
 
 pin19 - PB4 - UART1 RXD     цифрова шина приймача, 115200
 pin20 - PB5 - UART1 TXD
 
-pin12 - PA8 - I2C0 SDA
-pin11 - PA9 - I2C0 SCL
+pin12 - PA8 - I2C0 SDA  - розовий
+pin11 - PA9 - I2C0 SCL  - коричневий
+
+pin1 - PE15 - реле левого борта
+pin2 - PE14 - реле правого борта
+pin3 - PE13 - реле косарки 1
+pin4 - PB14 - реле косарки 2
+pin6 - PB12 - реле косарки 3
 
 Херассе. Пришив. Працює!!!!
 
@@ -58,3 +64,12 @@ B/VCC -
 0x20 - Довжина пакета
 0x40 - Команда (завжди 0x40)
 , 0xD0, 0x05 .... 
+
+
+
+
+Розʼєм приймача:
+
+1 - земля   голубий
+5 - +5В     розовий
+3 - UART    білий

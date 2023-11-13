@@ -52,6 +52,17 @@ void TMR0_IRQHandler(void)
     }
 }
 
+volatile bool tick1s = false;
+void TMR1_IRQHandler(void)
+{
+    if(TIMER_GetIntFlag(TIMER1) == 1)
+    {
+        /* Clear Timer1 time-out interrupt flag */
+        TIMER_ClearIntFlag(TIMER1);
+        tick1s = true;
+    }
+}
+
 
 void SYS_Init(void)
 {
@@ -80,6 +91,10 @@ void SYS_Init(void)
     /* Enable Timer 0 module clock */
     CLK_EnableModuleClock(TMR0_MODULE);
     CLK_SetModuleClock(TMR0_MODULE, CLK_CLKSEL1_TMR0_S_HXT, 0); // HCLK, HIRC
+
+    /* Enable Timer 1 module clock */
+    CLK_EnableModuleClock(TMR1_MODULE);
+    CLK_SetModuleClock(TMR1_MODULE, CLK_CLKSEL1_TMR1_S_HXT, 0); // HCLK, HIRC
 
     /* Enable UART modules clock */
     CLK_EnableModuleClock(UART0_MODULE);
@@ -260,8 +275,15 @@ void I2C0_Init(void)
 #define MCP4725_SLAVE_ADDR1          0x60                       /*!< slave address for MCP4725 sensor. Not 0x62? */
 #define MCP4725_SLAVE_ADDR2          0x61               /*!< slave address for MCP4725 sensor */
 #define MCP4725_WRITE_FAST_MODE     0x00                        /*!< MCP4725 fast write command */
-#define MCP4725_WRITE_DAC           0x60                       /*!< MCP4725 DAC write command */
 
+
+// TODO: Save to EEPROM 0 value
+// https://github.com/alex-zhou13/torqueVectoring/blob/8a4ddf38c78a09492a678310b06fbaa953034bdc/SrDes-MCP4725-master/main/mcp4725.c
+// https://github.com/adafruit/Adafruit_CircuitPython_MCP4725/blob/2cb9efd3beab653bf357b49b6798ee5a3ccb8ea1/adafruit_mcp4725.py#L44
+#define MCP4725_WRITE_FAST        0x00
+#define MCP4725_WRITE_DAC         0x40
+#define MCP4725_WRITE_DAC_EEPROM  0x60
+#define MCP4725_MASK              0xFF
 
 void mcp4725_set_value(uint16_t value, bool channel)
 {
@@ -346,7 +368,6 @@ int main()
     NVIC_EnableIRQ(TMR0_IRQn);
     /* Reset Timer0 and Start Timer0 counting */
 
-
     /* Init UART0 for printf */
     UART0_Init();
 
@@ -364,6 +385,22 @@ int main()
 
     GPIO_SetMode(PA, BIT10, GPIO_PMD_OUTPUT);
     PA10 = 1;
+
+    // Реле двигунів
+    
+    GPIO_SetMode(PE, BIT15, GPIO_PMD_OUTPUT); PE15 = 0; // Лівий борт (вперед)
+    GPIO_SetMode(PE, BIT14, GPIO_PMD_OUTPUT); PE14 = 0; // Правий борт (вперед)
+
+    GPIO_SetMode(PE, BIT13, GPIO_PMD_OUTPUT); PE13 = 0; // Реле косарки 1
+    GPIO_SetMode(PB, BIT14, GPIO_PMD_OUTPUT); PB14 = 0; // Реле косарки 2
+    GPIO_SetMode(PB, BIT12, GPIO_PMD_OUTPUT); PB12 = 0; // Реле косарки 3
+
+
+    TIMER_Open(TIMER1, TIMER_PERIODIC_MODE, 1);
+    TIMER_EnableInt(TIMER1);
+    TIMER_Start(TIMER1);
+    NVIC_EnableIRQ(TMR1_IRQn);
+
 
     // int8_t ch;
 
@@ -384,18 +421,151 @@ int main()
 
     int counter = 0;
 
+    static int last_motorL = 0;
+    static int last_motorR = 0;
+
+    // static int last_kosar = 0;
+
     do
     {
         if(axes_updated) {
             axes_updated = false;
-            printf("Axes:\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\r", axes[0], axes[1], axes[2], axes[3], axes[4], axes[5], axes[6], axes[7]);
+            // Спробуємо перетворити правий стик на два аналогових сигнали
+
+            // Нормалізуємо до -500..500
+            int ch1 = axes[0] - 1500;
+            int ch2 = axes[1] - 1500;
+            int X =  -(ch1 + ch2);
+            int Y =  -(ch1 - ch2);
+            
+
+            // [X, Y]
+            //
+            // [-500,500  ]   [   0,  850]   [500, 500]
+            // [-850, 0   ]   [   0,    0]   [850, 0  ]
+            // [-500,-500 ]   [   0, -850]   [468, -528]
+
+            // Спробуємо це перетворити на положення
+            // [   ] [ U ] [   ]
+            // [ L ] [ C ] [ R ]
+            // [   ] [ D ] [   ]
+
+            // Керування
+            // [  лівий мотор стоп, правий мотор вперед ] [ обидва мотори вперед ] [ лівий мотор вперед, правий мотор стоп ]
+            // [   ] [ обидва мотори стоп ] [  ]
+            // [ лівий мотор назад, правий мотор вперед ] [      обидва назад    ] [ лівий мотор вперед, правий мотор назад ]
+
+
+            int motorL = 0;
+            int motorR = 0;            
+
+            if(Y > 400) {
+                if(X < -400) {
+                    motorL = 0; motorR = 1; // лівий мотор стоп, правий мотор вперед
+                } else if(X > 400) {
+                    motorL = 1; motorR = 0; // лівий мотор вперед, правий мотор стоп
+                } else {
+                    motorL = 1; motorR = 1; // обидва мотори вперед
+                }
+            } else if( Y < -400) {
+                if(X < -400) {
+                    motorL = -1; motorR = 1; // лівий мотор назад, правий мотор вперед
+                } else if(X > 400) {
+                    motorL = 1; motorR = -1; // лівий мотор вперед, правий мотор назад 
+                } else {
+                    motorL = -1; motorR = -1; // обидва назад
+                }
+            } else {
+                if(X < -400) {
+                    motorL = -1; motorR = 1; // лівий мотор назад, правий мотор вперед
+                } else if(X > 400) {
+                    motorL = 1; motorR = -1; // лівий мотор вперед, правий мотор назад 
+                } else {
+                    motorL = 0; motorR = 0; // обидва мотори стоп
+                }
+
+            }
+
+            // Acceleration
+            int accel = (axes[2] - 1000) * 4096 / 1000;
+
+            // Перемикання моторов можливе тільки у нижньому положенні акселератора
+
+            if((accel < 100) && (motorL != last_motorL || motorR != last_motorR)) {
+                last_motorL = motorL;
+                last_motorR = motorR;
+                if(motorL == -1) {
+                    PE15 = 1; // Лівий борт (назад)
+                } else {
+                    PE15 = 0; // Лівий борт (вперед)
+                }
+                if(motorR == -1) {
+                    PE14 = 1; // Правий борт (назад)
+                } else {
+                    PE14 = 0; // Правий борт (вперед)
+                }
+                // mcp4725_set_value(motorL ? accel : 0, false);
+                // mcp4725_set_value(motorR ? accel : 0, true);
+            }
+            
+            if(last_motorL == 0) {
+                mcp4725_set_value(0, false);
+            } else {
+                mcp4725_set_value(accel, false);
+            }
+            if(last_motorR == 0) {
+                mcp4725_set_value(0, true);
+            } else {
+                mcp4725_set_value(accel, true);
+            }
+
+            printf("Axes 0:%6d 1:%6d 2:%6d 3:%6d 4:%6d 5:%6d 6:%6d 7:%6d"
+                " ch1: %6d ch2: %6d  X: %6d Y: %6d  M: %2d %2d"
+                "\r"
+                , axes[0], axes[1], axes[2], axes[3], axes[4], axes[5], axes[6], axes[7]
+                , ch1, ch2, X, Y, motorL, motorR
+            );
+
 
             // Transform axes[4] 1000..2000 to 0..4096
-            int a_value = (axes[4] - 1000) * 4096 / 1000;
-            int b_value = (axes[5] - 1000) * 4096 / 1000;
+            //int a_value = (axes[4] - 1000) * 4096 / 1000;
+            //int b_value = (axes[5] - 1000) * 4096 / 1000;
 
-            mcp4725_set_value(a_value, false);
-            mcp4725_set_value(b_value, true);
+            // Керування двигуном косарки
+            // 1000...1250: 000
+            // 1250...1500: 001
+            // 1500...1750: 011
+            // 1750...2000: 111
+            if(axes[5] < 1250) {
+                PE13 = 0; PB14 = 0; PB12 = 0;
+            } else if(axes[5] < 1500) {
+                PE13 = 1; PB14 = 0; PB12 = 0;
+            } else if(axes[5] < 1750) {
+                PE13 = 1; PB14 = 1; PB12 = 0;
+            } else {
+                PE13 = 1; PB14 = 1; PB12 = 1;
+            }
+
+            
+            //mcp4725_set_value(a_value, false);
+            //mcp4725_set_value(b_value, true);
+        }
+
+        if(tick1s) {
+            tick1s = false;
+            // printf("Task tick. %d (bus: %d)\n", counter, bus_packet_counter);
+            // counter += 50;
+            // if(kosar != last_kosar) {
+            //     last_kosar = kosar;
+            //     if(kosar == 0) {
+            //         // Вимикання одночасне.
+            //         PE13 = 0;
+            //         PB14 = 0;
+            //         PB12 = 0;
+            //     } else {
+            //         // Вмикання по черзі.
+            //     }
+            // }
         }
 
 
